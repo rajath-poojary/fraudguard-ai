@@ -61,3 +61,5 @@ Thumbs.db
 # Logs
 logs/
 *.log
+ml/evaluation/anomaly_results.csv
+ml/evaluation/anomaly_results.csv

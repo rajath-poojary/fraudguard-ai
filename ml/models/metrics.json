@@ -1,0 +1,70 @@
+{
+  "dataset": {
+    "rows": 284807,
+    "features": 33,
+    "missing_values_before": 0,
+    "missing_values_before_imputation": 0,
+    "legitimate_transactions": 284315,
+    "fraudulent_transactions": 492,
+    "fraud_rate": 0.001727485630620034,
+    "path": "C:\\Users\\rajat\\fraudguard-ai\\ml\\data\\raw\\creditcard.csv",
+    "sha256": "76274b691b16a6c49d3f159c883398e03ccd6d1ee12d9d8ee38f4b4b98551a89"
+  },
+  "split": {
+    "test_size": 0.2,
+    "random_state": 42,
+    "stratified": true
+  },
+  "selection_rule": "highest fraud F1, then recall, ROC-AUC, and precision",
+  "selected_model": "random_forest",
+  "models": {
+    "logistic_regression": {
+      "precision": 0.055904522613065326,
+      "recall": 0.9081632653061225,
+      "f1": 0.10532544378698225,
+      "roc_auc": 0.9732944985816501,
+      "confusion_matrix": [
+        [
+          55361,
+          1503
+        ],
+        [
+          9,
+          89
+        ]
+      ]
+    },
+    "decision_tree": {
+      "precision": 0.7368421052631579,
+      "recall": 0.7142857142857143,
+      "f1": 0.7253886010362695,
+      "roc_auc": 0.8569230344079107,
+      "confusion_matrix": [
+        [
+          56839,
+          25
+        ],
+        [
+          28,
+          70
+        ]
+      ]
+    },
+    "random_forest": {
+      "precision": 0.9605263157894737,
+      "recall": 0.7448979591836735,
+      "f1": 0.8390804597701149,
+      "roc_auc": 0.9572997477691133,
+      "confusion_matrix": [
+        [
+          56861,
+          3
+        ],
+        [
+          25,
+          73
+        ]
+      ]
+    }
+  }
+}

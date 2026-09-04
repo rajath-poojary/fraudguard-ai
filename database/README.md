@@ -1,6 +1,13 @@
 # Database
 
-PostgreSQL schema owned by Alembic-style migrations. No schema SQL has been written yet.
+The PostgreSQL schema is owned by Alembic migrations. SQLite is not supported.
+
+From the repository root, configure `POSTGRES_HOST`, `POSTGRES_PORT`,
+`POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in `.env`, then run:
+
+```bash
+\.venv\Scripts\python.exe -m alembic upgrade head
+```
 
 ## Layout
 

@@ -20,3 +20,12 @@ HTTP and WebSocket API for FraudGuard. This package is a scaffold: no scoring, i
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+## Database migrations
+
+From the repository root, set the PostgreSQL variables in `.env` and apply the
+schema with:
+
+```bash
+.venv\Scripts\python.exe -m alembic upgrade head
+```
