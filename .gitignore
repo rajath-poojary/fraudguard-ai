@@ -63,3 +63,4 @@ logs/
 *.log
 ml/evaluation/anomaly_results.csv
 ml/evaluation/anomaly_results.csv
+run.md
