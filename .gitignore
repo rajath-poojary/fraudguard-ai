@@ -1,0 +1,63 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ML artifacts (trained binaries; keep folder via .gitkeep)
+ml/models/*.pkl
+ml/models/*.joblib
+ml/models/*.onnx
+ml/data/raw/
+ml/data/processed/
+!ml/data/**/.gitkeep
+!ml/models/.gitkeep
+
+# Databases / local state
+*.db
+*.sqlite3
+database/data/
+
+# Docker
+docker-data/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log

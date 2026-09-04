@@ -1,0 +1,7 @@
+# Backend
+Dockerfile
+.dockerignore
+__pycache__
+.venv
+tests
+*.pyc

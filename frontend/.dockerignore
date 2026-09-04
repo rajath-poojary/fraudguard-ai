@@ -1,0 +1,5 @@
+# Frontend
+Dockerfile
+.dockerignore
+node_modules
+.next
