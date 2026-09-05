@@ -64,3 +64,4 @@ logs/
 ml/evaluation/anomaly_results.csv
 ml/evaluation/anomaly_results.csv
 run.md
+docs/architecture.md

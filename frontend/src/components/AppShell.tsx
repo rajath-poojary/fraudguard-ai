@@ -5,12 +5,15 @@ import { ReactNode } from "react";
 import { useAuth } from "../hooks/useAuth";
 
 const links = [
-  { href: "/dashboard", label: "Overview", mark: "01" },
-  { href: "/transactions", label: "Transactions", mark: "02" },
-  { href: "/simulator", label: "Simulator", mark: "03" },
-  { href: "/alerts", label: "Fraud alerts", mark: "04" },
-  { href: "/analytics", label: "Analytics", mark: "05" },
-  { href: "/admin", label: "Admin", mark: "06" },
+  { href: "/dashboard", label: "Command Center", icon: "⌂" },
+  { href: "/transactions", label: "Transaction Intelligence", icon: "↯" },
+  { href: "/investigations", label: "Fraud Investigations", icon: "◈" },
+  { href: "/network", label: "Fraud Network", icon: "◎" },
+  { href: "/simulator", label: "Attack Simulator", icon: "▷" },
+  { href: "/behavioral", label: "Behavioral Intelligence", icon: "◌" },
+  { href: "/model-lab", label: "Model Lab", icon: "⌁" },
+  { href: "/analytics", label: "Analytics", icon: "▥" },
+  { href: "/admin", label: "System Administration", icon: "⚙" },
 ];
 
 export default function AppShell({ children }: { children: ReactNode }) {
@@ -21,13 +24,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link className="brand" href="/dashboard"><span className="brand-mark">F</span><span>FRAUD<span>GUARD</span></span></Link>
-        <div className="workspace-label">Risk operations / 01</div>
-        <nav>{links.map((link) => <Link className={router.pathname.startsWith(link.href) ? "nav-link active" : "nav-link"} href={link.href} key={link.href}><span>{link.mark}</span>{link.label}</Link>)}</nav>
-        <div className="sidebar-foot"><div className="status-dot"><i /> Systems operational</div><button className="logout-button" onClick={logout}>Sign out <span>↗</span></button></div>
+        <div className="brand-row"><Link className="brand" href="/dashboard"><span className="brand-mark">X</span><span>FRAUD<span>GUARD</span><b> X</b></span></Link><span className="version-chip">02</span></div>
+        <div className="workspace-label">Intelligence console <span>● live</span></div>
+        <nav aria-label="Primary navigation">{links.map((link) => <Link className={router.pathname.startsWith(link.href) ? "nav-link active" : "nav-link"} href={link.href} key={link.href}><span className="nav-icon">{link.icon}</span><span>{link.label}</span></Link>)}</nav>
+        <div className="sidebar-foot"><div className="operator-card"><span className="operator-avatar">A</span><span><strong>Analyst workspace</strong><small>Authenticated session</small></span><i title="Session active" /></div><button className="logout-button" onClick={logout}>End session <span>↗</span></button></div>
       </aside>
       <main className="main-content">
-        <header className="topbar"><div className="mobile-brand">FRAUDGUARD</div><div className="topbar-meta"><span className="pulse" />Live risk monitor <span className="divider" /> UTC 09:42:18</div></header>
+        <header className="topbar"><div className="mobile-brand">FRAUDGUARD X</div><div className="topbar-context"><span className="pulse" />Connected to decision stream <span className="divider" /> <span className="mono">UTC</span></div><button className="icon-button" title="Open command palette" aria-label="Open command palette">⌘K</button></header>
         {children}
       </main>
     </div>

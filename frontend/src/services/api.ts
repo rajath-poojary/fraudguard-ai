@@ -4,10 +4,14 @@ export type TokenResponse = { access_token: string; token_type: string };
 export type TransactionAnalysis = {
   fraud_probability: number;
   anomaly_score: number;
+  behavior_score?: number;
+  network_score?: number;
+  rule_score?: number;
   risk_score: number;
   risk_level: "LOW" | "MEDIUM" | "HIGH";
-  decision: "APPROVE" | "REVIEW" | "BLOCK";
+  decision: "APPROVE" | "REVIEW" | "BLOCK" | "CHALLENGE" | "HOLD";
   reasons: string[];
+  reason_codes?: string[];
   contributions: { name: string; value: number; risk_points: number; explanation: string }[];
   rule_matches: { code: string; message: string; score: number }[];
 };
@@ -42,6 +46,15 @@ export type DashboardStatistics = {
   model_health: Record<string, string>;
 };
 export type AttackSimulation = { attack_type: string; transactions_generated: number; detected_transactions: number; detection_rate: number; peak_risk_score: number; detected: boolean; transactions: Transaction[] };
+export type Investigation = { id: string; title: string; severity: string; status: string; assigned_to?: string | null; created_at: string; alert_count?: number; evidence?: string[] };
+export type NetworkNode = { id: string; type: "user" | "device" | "merchant" | "ip"; label: string; risk_score?: number };
+export type NetworkEdge = { source: string; target: string; relationship: "used_device" | "transaction" | "login" | "merchant_interaction" | "shared_ip" };
+export type NetworkGraph = { nodes: NetworkNode[]; edges: NetworkEdge[] };
+export type BehavioralProfile = { account_id: string; profile_version: string; updated_at: string; deviation_score?: number; signals?: { name: string; value: number; explanation: string }[] };
+export type ModelMetrics = { model_version: string; precision?: number; recall?: number; f1?: number; roc_auc?: number; pr_auc?: number; confusion_matrix?: number[][]; feature_importance?: { name: string; value: number }[]; drift?: Record<string, string> };
+export type AnalyticsOverview = { series: { timestamp: string; transactions: number; fraud_probability?: number; alerts?: number }[]; segments?: Record<string, number> };
+export type AdminUser = { id: string; email: string; display_name?: string | null; role: string; is_active: boolean };
+export type AuditLog = { id: string; actor_user_id?: string; action: string; resource_type: string; resource_id?: string; created_at: string };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("fraudguard_token") : null;
@@ -81,4 +94,11 @@ export const api = {
   alert: (id: string) => request<Alert>(`/fraud-alerts/${id}`),
   statistics: () => request<DashboardStatistics>("/dashboard/statistics"),
   adminProfile: () => request<{ id: string; email: string; display_name: string | null; role: string }>("/admin/me"),
+  investigations: (limit = 50) => request<{ items: Investigation[]; total: number }>(`/cases?limit=${limit}`),
+  network: (entityId?: string) => request<NetworkGraph>(entityId ? `/entities/${entityId}/connections` : "/network/graph"),
+  behavioralProfiles: (limit = 50) => request<{ items: BehavioralProfile[]; total: number }>(`/behavioral/profiles?limit=${limit}`),
+  modelMetrics: () => request<ModelMetrics>("/models/active/metrics"),
+  analyticsOverview: (query = "") => request<AnalyticsOverview>(`/analytics/overview${query ? `?${query}` : ""}`),
+  adminUsers: () => request<{ items: AdminUser[]; total: number }>("/admin/users"),
+  auditLogs: (limit = 50) => request<{ items: AuditLog[]; total: number }>(`/admin/audit-logs?limit=${limit}`),
 };
