@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,6 +14,8 @@ from app.schemas.transactions import (
     FraudAlertListResponse,
     FraudAlertResponse,
     SimulationResponse,
+    AttackSimulationRequest,
+    AttackSimulationResponse,
     TransactionAnalysis,
     TransactionCreate,
     TransactionListResponse,
@@ -34,6 +37,8 @@ def to_response(transaction: Transaction) -> TransactionResponse:
             risk_level=transaction.risk_level or "LOW",
             decision=transaction.decision or "APPROVE",
             reasons=transaction.reasons or [],
+            contributions=(transaction.metadata_json or {}).get("contributions", []),
+            rule_matches=(transaction.metadata_json or {}).get("rule_matches", []),
         )
     return TransactionResponse(
         id=transaction.id,
@@ -95,6 +100,54 @@ def simulate(
     runtime: ModelRuntime = Depends(get_model_runtime),
 ) -> SimulationResponse:
     return SimulationResponse(transaction=create_transaction(payload, user, db, runtime))
+
+
+@router.post("/transactions/attack-simulate", response_model=AttackSimulationResponse, status_code=status.HTTP_201_CREATED)
+def attack_simulate(
+    payload: AttackSimulationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    runtime: ModelRuntime = Depends(get_model_runtime),
+) -> AttackSimulationResponse:
+    now = datetime.now(timezone.utc)
+    fingerprint = f"attack-{user.id}"
+    normal = {
+        "amount": payload.base_amount,
+        "location": payload.base_location,
+        "device_status": "known",
+        "merchant": "Everyday Goods",
+        "device_fingerprint": fingerprint,
+    }
+    sequences = {
+        "normal": [normal] * 3,
+        "account_takeover": [normal, normal, {**normal, "amount": Decimal("75000"), "location": "Mumbai", "device_status": "new"}, {**normal, "amount": Decimal("92000"), "location": "Mumbai", "device_status": "new"}],
+        "card_testing": [{**normal, "amount": Decimal("2"), "merchant": "Card Test Merchant", "device_fingerprint": f"test-{user.id}"}] * 6,
+        "velocity": [{**normal, "amount": Decimal("45000"), "device_status": "new"}] * 7,
+        "impossible_travel": [normal, {**normal, "location": "London", "device_status": "new", "amount": Decimal("72000")}],
+        "device_takeover": [normal, normal, {**normal, "device_status": "new", "device_fingerprint": f"takeover-{user.id}", "amount": Decimal("68000")}],
+        "fraud_ring": [{**normal, "device_status": "new", "device_fingerprint": f"ring-{index}", "merchant": "High Risk Exchange", "amount": Decimal("52000")} for index in range(6)],
+    }
+    generated: list[TransactionResponse] = []
+    for index, item in enumerate(sequences[payload.attack_type]):
+        transaction_payload = TransactionCreate(
+            amount=item["amount"], currency=payload.currency,
+            occurred_at=now + timedelta(seconds=index * (3 if payload.attack_type == "velocity" else 30)),
+            location=item["location"], device_status=item["device_status"],
+            merchant=item["merchant"], device_fingerprint=item["device_fingerprint"],
+            metadata={"attack_type": payload.attack_type},
+        )
+        generated.append(create_transaction(transaction_payload, user, db, runtime))
+    scores = [float(item.analysis.risk_score) for item in generated if item.analysis]
+    detected = [item for item in generated if item.analysis and item.analysis.risk_level in {"MEDIUM", "HIGH"}]
+    return AttackSimulationResponse(
+        attack_type=payload.attack_type,
+        transactions_generated=len(generated),
+        detected_transactions=len(detected),
+        detection_rate=(len(detected) / len(generated) * 100) if generated else 0,
+        peak_risk_score=max(scores, default=0),
+        detected=bool(detected),
+        transactions=generated,
+    )
 
 
 @router.get("/transactions/{transaction_id}", response_model=TransactionResponse)

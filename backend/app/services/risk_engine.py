@@ -36,6 +36,13 @@ class RuleMatch:
     message: str
     score: float = 1.0
 
+@dataclass(frozen=True)
+class SignalContribution:
+    name: str
+    value: float
+    risk_points: float
+    explanation: str
+
 
 Rule = Callable[[Mapping[str, Any]], RuleMatch | None]
 
@@ -49,6 +56,7 @@ class RiskAssessment:
     reason_codes: tuple[str, ...]
     signals: RiskSignals
     rule_matches: tuple[RuleMatch, ...]
+    contributions: tuple[SignalContribution, ...]
 
 
 class RuleEngine:
@@ -142,6 +150,16 @@ class RiskEngine:
             reasons.append("No elevated fraud, behavior, or rule signals detected")
         reason_codes = tuple(self._reason_code(name) for name, value in values.items() if value > 0)
         reason_codes += tuple(match.code for match in matches)
+        contributions = tuple(
+            SignalContribution(
+                name=name,
+                value=value,
+                risk_points=100.0 * self.weights[name] * value,
+                explanation=f"{self._display_name(name)} contributed {100.0 * self.weights[name] * value:.1f} risk points",
+            )
+            for name, value in values.items()
+            if value > 0
+        )
         return RiskAssessment(
             risk_score=risk_score,
             risk_level=risk_level,
@@ -150,6 +168,7 @@ class RiskEngine:
             reason_codes=reason_codes,
             signals=signals,
             rule_matches=matches,
+            contributions=contributions,
         )
 
     def assess(self, transaction: Mapping[str, Any], model_features: Any) -> RiskAssessment:

@@ -6,7 +6,44 @@ from typing import Any
 import joblib
 import pandas as pd
 
-from app.services.risk_engine import RiskEngine
+from app.services.risk_engine import RiskEngine, RuleEngine, RuleMatch
+
+
+def _high_amount(transaction: dict[str, Any]) -> RuleMatch | None:
+    if float(transaction.get("amount", 0)) >= 50000:
+        return RuleMatch("HIGH_AMOUNT", "High transaction amount", 0.7)
+    return None
+
+
+def _new_device(transaction: dict[str, Any]) -> RuleMatch | None:
+    if transaction.get("device_status") == "new":
+        return RuleMatch("NEW_DEVICE", "New device requires verification", 0.7)
+    return None
+
+
+def _unusual_time(transaction: dict[str, Any]) -> RuleMatch | None:
+    occurred_at = transaction.get("occurred_at")
+    if hasattr(occurred_at, "hour") and occurred_at.hour < 6:
+        return RuleMatch("UNUSUAL_TIME", "Transaction occurred during unusual hours", 0.5)
+    return None
+
+
+def _velocity(transaction: dict[str, Any]) -> RuleMatch | None:
+    if float(transaction.get("transaction_frequency", 0)) >= 5:
+        return RuleMatch("VELOCITY_ANOMALY", "Transaction velocity is above the normal range", 0.8)
+    return None
+
+
+def _impossible_travel(transaction: dict[str, Any]) -> RuleMatch | None:
+    if transaction.get("impossible_travel"):
+        return RuleMatch("IMPOSSIBLE_TRAVEL", "Location changed too quickly to be plausible", 1.0)
+    return None
+
+
+def _behavior_deviation(transaction: dict[str, Any]) -> RuleMatch | None:
+    if transaction.get("behavior_deviation"):
+        return RuleMatch("BEHAVIOR_DEVIATION", "Transaction differs significantly from user history", 0.7)
+    return None
 
 
 class ModelRuntime:
@@ -22,7 +59,11 @@ class ModelRuntime:
             )
         self.classifier = joblib.load(classifier_path)
         self.anomaly_detector = joblib.load(anomaly_path)
-        self.risk_engine = RiskEngine(self.classifier, self.anomaly_detector)
+        self.risk_engine = RiskEngine(
+            self.classifier,
+            self.anomaly_detector,
+            RuleEngine((_high_amount, _new_device, _unusual_time, _velocity, _impossible_travel, _behavior_deviation)),
+        )
 
     def model_features(self, transaction: dict[str, Any]) -> pd.DataFrame:
         preprocessor = self.classifier.named_steps["preprocessor"]

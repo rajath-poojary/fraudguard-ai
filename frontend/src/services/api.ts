@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8001";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8002";
 
 export type TokenResponse = { access_token: string; token_type: string };
 export type TransactionAnalysis = {
@@ -8,6 +8,8 @@ export type TransactionAnalysis = {
   risk_level: "LOW" | "MEDIUM" | "HIGH";
   decision: "APPROVE" | "REVIEW" | "BLOCK";
   reasons: string[];
+  contributions: { name: string; value: number; risk_points: number; explanation: string }[];
+  rule_matches: { code: string; message: string; score: number }[];
 };
 export type Transaction = {
   id: string;
@@ -35,7 +37,11 @@ export type DashboardStatistics = {
   review_transactions: number;
   blocked_transactions: number;
   approved_transactions: number;
+  risk_distribution: Record<string, number>;
+  fraud_rate: number;
+  model_health: Record<string, string>;
 };
+export type AttackSimulation = { attack_type: string; transactions_generated: number; detected_transactions: number; detection_rate: number; peak_risk_score: number; detected: boolean; transactions: Transaction[] };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("fraudguard_token") : null;
@@ -47,6 +53,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ...options.headers,
     },
   });
+  if (response.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("fraudguard_token");
+    if (window.location.pathname !== "/login") window.location.replace("/login");
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail || `Request failed with status ${response.status}`);
@@ -65,6 +75,8 @@ export const api = {
     request<Transaction>("/transactions", { method: "POST", body: JSON.stringify(body) }),
   simulate: (body: Record<string, unknown>) =>
     request<{ transaction: Transaction }>("/transactions/simulate", { method: "POST", body: JSON.stringify(body) }),
+  attackSimulate: (body: Record<string, unknown>) =>
+    request<AttackSimulation>("/transactions/attack-simulate", { method: "POST", body: JSON.stringify(body) }),
   alerts: (limit = 50) => request<{ items: Alert[]; total: number }>(`/fraud-alerts?limit=${limit}`),
   alert: (id: string) => request<Alert>(`/fraud-alerts/${id}`),
   statistics: () => request<DashboardStatistics>("/dashboard/statistics"),

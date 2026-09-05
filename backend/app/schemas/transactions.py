@@ -42,6 +42,8 @@ class TransactionAnalysis(BaseModel):
     risk_level: str
     decision: str
     reasons: list[str]
+    contributions: list[dict[str, Any]] = Field(default_factory=list)
+    rule_matches: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TransactionResponse(BaseModel):
@@ -86,7 +88,32 @@ class DashboardStatistics(BaseModel):
     review_transactions: int
     blocked_transactions: int
     approved_transactions: int
+    risk_distribution: dict[str, int] = Field(default_factory=dict)
+    fraud_rate: float = 0.0
+    model_health: dict[str, str] = Field(default_factory=dict)
 
 
 class SimulationResponse(BaseModel):
     transaction: TransactionResponse
+
+
+class AttackSimulationRequest(BaseModel):
+    attack_type: str = Field(pattern="^(normal|account_takeover|card_testing|velocity|impossible_travel|device_takeover|fraud_ring)$")
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    base_location: str = Field(default="Bengaluru", min_length=2, max_length=100)
+    base_amount: Decimal = Field(default=Decimal("1200"), gt=0, max_digits=18, decimal_places=2)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_attack_currency(cls, value: str) -> str:
+        return value.upper()
+
+
+class AttackSimulationResponse(BaseModel):
+    attack_type: str
+    transactions_generated: int
+    detected_transactions: int
+    detection_rate: float
+    peak_risk_score: float
+    detected: bool
+    transactions: list[TransactionResponse]

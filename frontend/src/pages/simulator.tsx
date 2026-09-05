@@ -1,6 +1,40 @@
 import { FormEvent, useState } from "react";
 import AppShell from "../components/AppShell";
 import { DecisionBadge, ErrorState, PageHeader, RiskBadge } from "../components/UI";
-import { api, Transaction } from "../services/api";
+import { api, AttackSimulation } from "../services/api";
 
-export default function Simulator() { const [amount, setAmount] = useState("85000"); const [currency, setCurrency] = useState("INR"); const [location, setLocation] = useState("Bengaluru"); const [deviceStatus, setDeviceStatus] = useState("new"); const [merchant, setMerchant] = useState("Online Electronics"); const [time, setTime] = useState("03:15"); const [result, setResult] = useState<Transaction | null>(null); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); const occurredAt = new Date(); const [hours, minutes] = time.split(":").map(Number); occurredAt.setHours(hours, minutes, 0, 0); try { const response = await api.simulate({ amount: Number(amount), currency, location, device_status: deviceStatus, merchant, occurred_at: occurredAt.toISOString(), metadata: {} }); setResult(response.transaction); } catch (err) { setError(err instanceof Error ? err.message : "Simulation failed"); } finally { setBusy(false); } } return <AppShell><section className="page narrow-page"><PageHeader eyebrow="Investigation / sandbox" title="Transaction simulator" description="Run a payment through the live analysis pipeline." /><div className="simulator-grid"><form className="panel simulator-form" onSubmit={submit}><span className="eyebrow">Input transaction</span><h3>Construct a payment</h3><label>Amount<input type="number" min="0.01" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} /></label><label>Currency<select value={currency} onChange={(e) => setCurrency(e.target.value)}><option>INR</option><option>USD</option><option>EUR</option><option>GBP</option></select></label><label>Location<input required value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Bengaluru" /></label><label>Device<select value={deviceStatus} onChange={(e) => setDeviceStatus(e.target.value)}><option value="new">New Device</option><option value="known">Known Device</option></select></label><label>Merchant<input required value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="Online Electronics" /></label><label>Transaction time<input type="time" required value={time} onChange={(e) => setTime(e.target.value)} /></label>{error && <ErrorState message={error} />}<button className="primary-button" disabled={busy}>{busy ? "Analyzing..." : "Run analysis"}<span>↗</span></button></form><div className="panel result-panel"><span className="eyebrow">Pipeline output</span>{!result ? <div className="result-placeholder"><span className="crosshair">+</span><strong>Awaiting transaction</strong><span>Your analysis will appear here.</span></div> : <><div className="result-top"><div><span className="eyebrow">Risk score</span><strong>{result.analysis?.risk_score.toFixed(1)}</strong></div><RiskBadge value={result.analysis?.risk_level} /></div><DecisionBadge value={result.analysis?.decision} /><ul className="reason-list">{result.analysis?.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></>}</div></div></section></AppShell>; }
+const attacks = [
+  ["normal", "Normal transaction", "Baseline behavioral sequence"],
+  ["account_takeover", "Account takeover", "New device, location and amount shift"],
+  ["card_testing", "Card testing attack", "Rapid low-value authorization probes"],
+  ["velocity", "Transaction velocity attack", "Burst of high-frequency payments"],
+  ["impossible_travel", "Impossible travel", "Rapid movement between distant locations"],
+  ["device_takeover", "Device takeover", "Trusted user on a replacement device"],
+  ["fraud_ring", "Fraud ring", "Coordinated activity across shared devices"],
+] as const;
+
+export default function Simulator() {
+  const [attackType, setAttackType] = useState("account_takeover");
+  const [result, setResult] = useState<AttackSimulation | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      setResult(await api.attackSimulate({ attack_type: attackType, currency: "INR", base_location: "Bengaluru", base_amount: 1200 }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Attack simulation failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <AppShell><section className="page narrow-page"><PageHeader eyebrow="Red team / sandbox" title="Fraud attack simulator" description="Generate an attack sequence and watch FraudGuard detect it in real time." /><div className="simulator-grid"><form className="panel simulator-form" onSubmit={submit}><span className="eyebrow">Choose an attack</span><h3>Attack simulator</h3><div className="attack-options">{attacks.map(([value, label, detail]) => <label className={attackType === value ? "attack-option selected" : "attack-option"} key={value}><input type="radio" name="attack" value={value} checked={attackType === value} onChange={(event) => setAttackType(event.target.value)} /><span><strong>{label}</strong><small>{detail}</small></span></label>)}</div>{error && <ErrorState message={error} />}<button className="primary-button" disabled={busy}>{busy ? "Running sequence..." : "Launch attack"}<span>↗</span></button></form>{result ? <AttackReport result={result} /> : <div className="panel result-panel simulator-intro"><span className="eyebrow">Red team versus FraudGuard</span><h3>Select a scenario to begin</h3><p>Each launch generates a sequence of transactions, scores every event, and records the evidence that caused escalation.</p><div className="pipeline-mini"><span>ATTACK</span><i>↓</i><span>DETECTION ENGINES</span><i>↓</i><span>DECISION + EVIDENCE</span></div></div>}</div></section></AppShell>;
+}
+
+function AttackReport({ result }: { result: AttackSimulation }) {
+  return <div className="panel attack-report"><div className="result-top"><div><span className="eyebrow">Attack result</span><strong>{result.peak_risk_score.toFixed(0)}</strong><span>/ 100 peak risk</span></div><DecisionBadge value={result.detected ? "BLOCK" : "APPROVE"} /></div><div className="attack-summary"><div><span>Generated</span><strong>{result.transactions_generated}</strong></div><div><span>Detected</span><strong>{result.detected_transactions}</strong></div><div><span>Detection rate</span><strong>{result.detection_rate.toFixed(1)}%</strong></div></div><span className="eyebrow">Attack progress</span><div className="attack-timeline">{result.transactions.map((item, index) => <div className="timeline-item" key={item.id}><span className="timeline-time">T+{index * 30}s</span><div><strong>{item.currency} {Number(item.amount).toLocaleString()}</strong><small>{item.analysis?.rule_matches?.[0]?.message || item.analysis?.reasons?.[0] || "Baseline activity"}</small></div><RiskBadge value={item.analysis?.risk_level} /></div>)}</div></div>;
+}

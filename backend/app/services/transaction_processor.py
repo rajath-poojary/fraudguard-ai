@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Device, FraudAlert, RiskEvent, Transaction, User
 from app.schemas.transactions import TransactionCreate
-from app.services.risk_engine import RiskAssessment, RiskEngine, RiskSignals
+from app.services.risk_engine import RiskAssessment, RiskEngine, RiskSignals, RuleEngine, RuleMatch
 
 
 class TransactionProcessor:
@@ -19,6 +19,17 @@ class TransactionProcessor:
     def process(self, db: Session, user: User, payload: TransactionCreate, model_features: Any) -> tuple[Transaction, RiskAssessment]:
         device_novelty = self._device_novelty(db, user.id, payload.device_fingerprint)
         transaction_frequency = self._frequency(db, user.id, payload.occurred_at)
+        prior = self._prior_transaction(db, user.id)
+        prior_metadata = prior.metadata_json if prior else {}
+        prior_location = prior_metadata.get("location") if prior_metadata else None
+        impossible_travel = bool(
+            prior_location
+            and payload.location
+            and prior_location != payload.location
+            and prior
+            and payload.occurred_at - prior.occurred_at <= timedelta(minutes=15)
+        )
+        behavior_deviation = self._behavior_deviation(db, user.id, float(payload.amount), payload.location)
         transaction = Transaction(
             user_id=user.id,
             merchant_id=payload.merchant_id,
@@ -54,7 +65,17 @@ class TransactionProcessor:
             )),
         )
         assessment = self.risk_engine.assess_with_features(
-            transaction={**payload.metadata, "amount": float(payload.amount)},
+            transaction={
+                **payload.metadata,
+                "amount": float(payload.amount),
+                "device_status": payload.device_status,
+                "location": payload.location,
+                "merchant": payload.merchant,
+                "transaction_frequency": transaction_frequency,
+                "prior_location": prior_location,
+                "impossible_travel": impossible_travel,
+                "behavior_deviation": behavior_deviation,
+            },
             model_features=model_features,
             auxiliary_signals=signals,
         )
@@ -64,6 +85,12 @@ class TransactionProcessor:
         transaction.risk_level = assessment.risk_level
         transaction.decision = assessment.decision
         transaction.reasons = list(assessment.reasons)
+        transaction.metadata_json = {
+            **(transaction.metadata_json or {}),
+            "contributions": [vars(item) for item in assessment.contributions],
+            "rule_matches": [vars(item) for item in assessment.rule_matches],
+        }
+        self._record_device(db, user.id, payload)
         if assessment.risk_level in {"MEDIUM", "HIGH"}:
             db.add(FraudAlert(
                 transaction_id=transaction.id,
@@ -97,3 +124,49 @@ class TransactionProcessor:
             return 0.0
         known = db.scalar(select(Device.id).where(Device.user_id == user_id, Device.fingerprint == fingerprint).limit(1))
         return 0.0 if known else 1.0
+
+    @staticmethod
+    def _prior_transaction(db: Session, user_id: UUID) -> Transaction | None:
+        return db.scalar(
+            select(Transaction)
+            .where(Transaction.user_id == user_id)
+            .order_by(Transaction.occurred_at.desc())
+            .limit(1)
+        )
+
+    @staticmethod
+    def _behavior_deviation(db: Session, user_id: UUID, amount: float, location: str | None) -> float:
+        recent = list(db.scalars(
+            select(Transaction)
+            .where(Transaction.user_id == user_id)
+            .order_by(Transaction.occurred_at.desc())
+            .limit(20)
+        ))
+        if not recent:
+            return 0.0
+        average_amount = sum(float(item.amount) for item in recent) / len(recent)
+        amount_deviation = 1.0 if average_amount and amount > average_amount * 5 else 0.0
+        known_locations = {(
+            item.metadata_json or {}
+        ).get("location") for item in recent}
+        location_deviation = 1.0 if location and known_locations and location not in known_locations else 0.0
+        return max(amount_deviation, location_deviation)
+
+    @staticmethod
+    def _record_device(db: Session, user_id: UUID, payload: TransactionCreate) -> None:
+        if not payload.device_fingerprint:
+            return
+        device = db.scalar(select(Device).where(
+            Device.user_id == user_id,
+            Device.fingerprint == payload.device_fingerprint,
+        ))
+        now = datetime.now(timezone.utc)
+        if device is None:
+            db.add(Device(
+                user_id=user_id,
+                fingerprint=payload.device_fingerprint,
+                first_seen_at=now,
+                last_seen_at=now,
+            ))
+        else:
+            device.last_seen_at = now

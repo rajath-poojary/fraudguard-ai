@@ -25,6 +25,13 @@ def statistics(
             func.count(case((Transaction.decision == "APPROVE", 1))),
         ).where(Transaction.user_id == user.id)
     ).one()
+    distribution = db.execute(
+        select(Transaction.risk_level, func.count(Transaction.id))
+        .where(Transaction.user_id == user.id)
+        .group_by(Transaction.risk_level)
+    ).all()
+    total = counts[0] or 0
+    blocked = counts[4] or 0
     return DashboardStatistics(
         total_transactions=counts[0],
         total_alerts=counts[1],
@@ -32,4 +39,7 @@ def statistics(
         review_transactions=counts[3],
         blocked_transactions=counts[4],
         approved_transactions=counts[5],
+        risk_distribution={str(level or "PENDING"): count for level, count in distribution},
+        fraud_rate=(blocked / total * 100) if total else 0.0,
+        model_health={"data_drift": "LOW", "performance": "STABLE", "prediction_drift": "MEDIUM"},
     )

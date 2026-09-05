@@ -2,7 +2,9 @@
 
 AI-assisted real-time transaction fraud detection and risk intelligence platform.
 
-This repository is currently a **production-style scaffold**: folders, configuration, and documentation only. Application and ML business logic will be added in later phases.
+This repository contains a production-style fraud intelligence platform with a
+FastAPI gateway, explainable multi-layer risk engine, PostgreSQL persistence,
+offline ML artifacts, and a Next.js analyst dashboard.
 
 ## Repository layout
 
@@ -39,14 +41,15 @@ fraudguard-ai/
 └── README.md
 ```
 
-## Local setup (after logic is implemented)
+## Local setup
 
 1. Copy `.env.example` to `.env` and replace placeholder secrets.
 2. Run `docker compose up --build`.
 3. API: `http://localhost:8000` · UI: `http://localhost:3000`
 
-Until services are implemented, Compose builds may fail; that is expected for this scaffold phase.
+The current runtime path is documented in [RUN.md](RUN.md). The architecture
+and implementation boundaries are documented in [docs/architecture.md](docs/architecture.md).
 
 ## Docs
 
-See [docs/README.md](docs/README.md) for architecture, API, and operations notes (to be filled as the system is built).
+See [docs/README.md](docs/README.md) for architecture, API, and operations notes.
