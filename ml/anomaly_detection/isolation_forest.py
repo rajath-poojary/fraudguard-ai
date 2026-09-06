@@ -66,10 +66,25 @@ class IsolationForestAnomalyDetector:
         self.random_state = random_state
         self.pipeline: Pipeline | None = None
         self.feature_names_: list[str] = []
+        self.training_score_range_: tuple[float, float] = (0.0, 1.0)
+        self.training_rows_: int = 0
+        self.fit_on_legitimate_only_: bool = False
 
     def fit(self, transactions: pd.DataFrame) -> "IsolationForestAnomalyDetector":
+        labels = next(
+            (column for column in ("Class", "class", "is_fraud", "fraud") if column in transactions),
+            None,
+        )
+        training_transactions = transactions
+        if labels is not None:
+            legitimate = pd.to_numeric(transactions[labels], errors="coerce").eq(0)
+            if legitimate.any():
+                training_transactions = transactions.loc[legitimate]
+                self.fit_on_legitimate_only_ = True
         features = prepare_transaction_features(transactions)
+        training_features = prepare_transaction_features(training_transactions)
         self.feature_names_ = list(features.columns)
+        self.training_rows_ = len(training_features)
         self.pipeline = Pipeline(
             steps=[
                 ("imputer", SimpleImputer(strategy="median")),
@@ -84,7 +99,10 @@ class IsolationForestAnomalyDetector:
                 ),
             ]
         )
-        self.pipeline.fit(features)
+        self.pipeline.fit(training_features)
+        training_raw_scores = -self.pipeline.decision_function(training_features)
+        lower, upper = pd.Series(training_raw_scores).quantile([0.01, 0.99]).tolist()
+        self.training_score_range_ = (float(lower), float(max(upper, lower + 1e-9)))
         return self
 
     def _require_fitted(self) -> Pipeline:
@@ -96,14 +114,39 @@ class IsolationForestAnomalyDetector:
         """Return scores where larger values indicate more anomalous behavior."""
         pipeline = self._require_fitted()
         features = prepare_transaction_features(transactions)
-        scores = -pipeline.decision_function(features)
+        raw_scores = -pipeline.decision_function(features)
+        lower, upper = self.training_score_range_
+        scores = ((raw_scores - lower) / (upper - lower)).clip(0.0, 1.0 - 1e-12)
         return pd.Series(scores, index=transactions.index, name="anomaly_score")
+
+    def top_anomaly_features(
+        self, transactions: pd.DataFrame, top_n: int = 3
+    ) -> list[list[dict[str, float | str]]]:
+        """Return the largest absolute standardized deviations per transaction."""
+        if top_n <= 0:
+            raise ValueError("top_n must be positive")
+        pipeline = self._require_fitted()
+        features = prepare_transaction_features(transactions).reindex(columns=self.feature_names_)
+        imputed = pipeline.named_steps["imputer"].transform(features)
+        scaled = pipeline.named_steps["scaler"].transform(imputed)
+        results: list[list[dict[str, float | str]]] = []
+        for row in scaled:
+            indices = sorted(range(len(row)), key=lambda index: abs(row[index]), reverse=True)[:top_n]
+            results.append(
+                [
+                    {"feature": self.feature_names_[index], "deviation": round(float(abs(row[index])), 6)}
+                    for index in indices
+                    if abs(row[index]) > 0
+                ]
+            )
+        return results
 
     def predict_anomalies(self, transactions: pd.DataFrame) -> pd.DataFrame:
         """Return input rows with an anomaly score and threshold decision."""
         scores = self.anomaly_score(transactions)
         result = transactions.copy()
         result["anomaly_score"] = scores
+        result["top_anomaly_features"] = self.top_anomaly_features(transactions)
         result["is_anomaly"] = scores >= self.threshold
         return result
 
@@ -125,4 +168,7 @@ class IsolationForestAnomalyDetector:
             "n_estimators": self.n_estimators,
             "random_state": self.random_state,
             "feature_names": self.feature_names_,
+            "training_rows": self.training_rows_,
+            "fit_on_legitimate_only": self.fit_on_legitimate_only_,
+            "training_score_range": self.training_score_range_,
         }

@@ -37,6 +37,10 @@ def main() -> None:
     args = parse_args()
     historical = pd.read_csv(args.historical_data)
     new_transactions = pd.read_csv(args.new_data or args.historical_data)
+    if "Class" in historical.columns:
+        historical = historical[historical["Class"].eq(0)].copy()
+    elif "is_fraud" in historical.columns:
+        historical = historical[historical["is_fraud"].eq(False)].copy()
 
     detector = IsolationForestAnomalyDetector(
         threshold=args.threshold,

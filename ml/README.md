@@ -13,8 +13,17 @@ From the repository root, install `backend/requirements.txt`, then run:
 
 The script downloads the public credit-card fraud dataset on first use, stores
 it under `data/raw/`, and writes the selected model, preprocessing pipeline,
-metrics JSON, and evaluation report. Use `--data PATH` to train from a local
-CSV instead. The CSV must contain a binary `Class` column.
+version metadata, metrics JSON, and evaluation report. Records are ordered by
+`Time` and split chronologically into train, validation, and test partitions.
+Class weighting handles imbalance, and the operating threshold is selected on
+validation data with recall-weighted F2. Use `--data PATH` to train from a
+local CSV instead. The CSV must contain a binary `Class` column. Publish a new
+artifact version with `--model-version fraud-classifier-v1.0.1`.
+
+The API exposes `POST /api/predict` and requires a `features` object containing
+all feature names recorded in `models/model_version.json`. It returns the
+probability, artifact version, thresholded decision, and risk level. Requests
+with missing features fail rather than receiving an invented score.
 
 ## Unsupervised anomaly detection
 

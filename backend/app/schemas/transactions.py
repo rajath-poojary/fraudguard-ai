@@ -7,16 +7,27 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TransactionCreate(BaseModel):
+    transaction_id: UUID | None = None
+    user_id: UUID | None = None
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     currency: str = Field(min_length=3, max_length=3)
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime | None = None
     merchant_id: UUID | None = None
+    merchant_category: str | None = Field(default=None, max_length=100)
     device_id: UUID | None = None
     device_fingerprint: str | None = Field(default=None, max_length=255)
     device_status: str = Field(default="known", pattern="^(known|new)$")
+    ip_address: str | None = Field(default=None, max_length=45)
     location: str | None = Field(default=None, max_length=100)
     merchant: str | None = Field(default=None, max_length=200)
     country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    account_age: int | None = Field(default=None, ge=0)
+    payment_method: str | None = Field(default=None, max_length=50)
+    transaction_status: str | None = Field(default="pending", max_length=30)
+    previous_transaction_id: UUID | None = None
+    is_fraud: bool = False
+    fraud_scenario: str | None = Field(default=None, max_length=50)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("currency")
@@ -50,11 +61,24 @@ class TransactionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    transaction_id: UUID | None = None
     user_id: UUID
     amount: Decimal
     currency: str
     status: str
+    transaction_status: str | None = None
     occurred_at: datetime
+    timestamp: datetime | None = None
+    merchant_id: UUID | None = None
+    merchant_category: str | None = None
+    device_id: UUID | None = None
+    ip_address: str | None = None
+    location: str | None = None
+    account_age: int | None = None
+    payment_method: str | None = None
+    previous_transaction_id: UUID | None = None
+    is_fraud: bool = False
+    fraud_scenario: str | None = None
     analysis: TransactionAnalysis | None = None
     created_at: datetime
 
@@ -90,7 +114,13 @@ class DashboardStatistics(BaseModel):
     approved_transactions: int
     risk_distribution: dict[str, int] = Field(default_factory=dict)
     fraud_rate: float = 0.0
+    total_volume: float = 0.0
+    exposure_prevented: float = 0.0
+    active_investigations: int = 0
     model_health: dict[str, str] = Field(default_factory=dict)
+    top_risky_merchants: list[dict[str, Any]] = Field(default_factory=list)
+    top_risky_devices: list[dict[str, Any]] = Field(default_factory=list)
+    fraud_trend: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SimulationResponse(BaseModel):

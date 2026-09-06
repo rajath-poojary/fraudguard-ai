@@ -91,7 +91,7 @@ class RiskEngine:
         rule_engine: RuleEngine | None = None,
         *,
         weights: Mapping[str, float] | None = None,
-        anomaly_threshold: float = 0.0,
+        anomaly_threshold: float = 0.5,
         frequency_saturation: float = 10.0,
         medium_threshold: float = 35.0,
         high_threshold: float = 70.0,

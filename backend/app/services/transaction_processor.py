@@ -30,18 +30,34 @@ class TransactionProcessor:
             and payload.occurred_at - prior.occurred_at <= timedelta(minutes=15)
         )
         behavior_deviation = self._behavior_deviation(db, user.id, float(payload.amount), payload.location)
+        occurred_time = payload.timestamp or payload.occurred_at
+        prev_tx_id = payload.previous_transaction_id or (prior.id if prior else None)
+        calculated_account_age = payload.account_age
+        if calculated_account_age is None and hasattr(user, "created_at") and user.created_at:
+            calculated_account_age = max(0, (occurred_time.date() - user.created_at.date()).days)
+
         transaction = Transaction(
             user_id=user.id,
             merchant_id=payload.merchant_id,
             device_id=payload.device_id,
             amount=payload.amount,
             currency=payload.currency,
-            occurred_at=payload.occurred_at,
+            status=payload.transaction_status or "pending",
+            occurred_at=occurred_time,
+            merchant_category=payload.merchant_category,
+            ip_address=payload.ip_address,
+            location=payload.location,
+            account_age=calculated_account_age,
+            payment_method=payload.payment_method,
+            previous_transaction_id=prev_tx_id,
+            is_fraud=payload.is_fraud,
+            fraud_scenario=payload.fraud_scenario,
             metadata_json={
                 **payload.metadata,
                 "location": payload.location,
                 "merchant": payload.merchant,
                 "device_status": payload.device_status,
+                "ip_address": payload.ip_address,
             },
         )
         db.add(transaction)

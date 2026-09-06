@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change_me_to_a_long_random_string"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15
+    database_url_override: str | None = None
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "fraudguard"
@@ -16,6 +17,8 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            return self.database_url_override
         user = quote(self.postgres_user, safe="")
         password = quote(self.postgres_password, safe="")
         return (

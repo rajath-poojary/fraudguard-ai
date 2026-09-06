@@ -44,6 +44,9 @@ def test_detector_returns_scores_and_applies_configurable_threshold():
     assert result["anomaly_score"].notna().all()
     assert result["is_anomaly"].equals(result["anomaly_score"] >= 0.0)
     assert result.iloc[-2:]["anomaly_score"].mean() > result.iloc[:30]["anomaly_score"].mean()
+    assert detector.fit_on_legitimate_only_ is True
+    assert detector.training_rows_ == 30
+    assert result.iloc[-1]["top_anomaly_features"]
 
     detector.threshold = 1.0
     assert not detector.predict_anomalies(transactions)["is_anomaly"].any()

@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -70,10 +71,10 @@ class Device(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     fingerprint: Mapped[str] = mapped_column(String(255), nullable=False)
     platform: Mapped[str | None] = mapped_column(String(50))
     first_seen_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default="now()"
+        nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
     last_seen_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default="now()"
+        nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
 
     user: Mapped[User] = relationship(back_populates="devices")
@@ -106,6 +107,9 @@ class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_transactions_merchant_created_at", "merchant_id", "created_at"),
         Index("ix_transactions_device_created_at", "device_id", "created_at"),
         Index("ix_transactions_decision_created_at", "decision", "created_at"),
+        Index("ix_transactions_ip_address_created_at", "ip_address", "created_at"),
+        Index("ix_transactions_previous_tx_id", "previous_transaction_id"),
+        Index("ix_transactions_is_fraud", "is_fraud"),
     )
 
     user_id: Mapped[UUID] = mapped_column(
@@ -121,6 +125,16 @@ class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="pending")
     occurred_at: Mapped[datetime] = mapped_column(nullable=False)
+    merchant_category: Mapped[str | None] = mapped_column(String(100))
+    ip_address: Mapped[str | None] = mapped_column(String(45))
+    location: Mapped[str | None] = mapped_column(String(100))
+    account_age: Mapped[int | None] = mapped_column(Integer)
+    payment_method: Mapped[str | None] = mapped_column(String(50))
+    previous_transaction_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="SET NULL")
+    )
+    is_fraud: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    fraud_scenario: Mapped[str | None] = mapped_column(String(50))
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON().with_variant(JSONB, "postgresql"))
     fraud_probability: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     anomaly_score: Mapped[Decimal | None] = mapped_column(Numeric(8, 5))
@@ -132,8 +146,23 @@ class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     user: Mapped[User] = relationship(back_populates="transactions")
     merchant: Mapped[Merchant | None] = relationship(back_populates="transactions")
     device: Mapped[Device | None] = relationship(back_populates="transactions")
+    previous_transaction: Mapped["Transaction | None"] = relationship(
+        remote_side="Transaction.id", foreign_keys=[previous_transaction_id]
+    )
     fraud_alert: Mapped["FraudAlert | None"] = relationship(back_populates="transaction", uselist=False)
     risk_events: Mapped[list["RiskEvent"]] = relationship(back_populates="transaction")
+
+    @property
+    def transaction_id(self) -> UUID:
+        return self.id
+
+    @property
+    def timestamp(self) -> datetime:
+        return self.occurred_at
+
+    @property
+    def transaction_status(self) -> str:
+        return self.status
 
 
 class FraudAlert(UUIDPrimaryKeyMixin, TimestampMixin, Base):

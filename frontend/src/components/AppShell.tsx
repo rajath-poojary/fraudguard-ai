@@ -7,6 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 const links = [
   { href: "/dashboard", label: "Command Center", icon: "⌂" },
   { href: "/transactions", label: "Transaction Intelligence", icon: "↯" },
+  { href: "/temporal", label: "Temporal Sequences", icon: "⏱" },
   { href: "/investigations", label: "Fraud Investigations", icon: "◈" },
   { href: "/network", label: "Fraud Network", icon: "◎" },
   { href: "/simulator", label: "Attack Simulator", icon: "▷" },
