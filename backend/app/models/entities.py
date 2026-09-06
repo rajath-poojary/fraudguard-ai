@@ -27,20 +27,23 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),
         CheckConstraint("length(trim(email)) > 3", name="ck_users_email_not_blank"),
-        CheckConstraint("role IN ('user', 'admin')", name="ck_users_role"),
+        CheckConstraint("role IN ('ADMIN', 'INVESTIGATOR', 'ANALYST')", name="ck_users_role"),
         Index("ix_users_created_at", "created_at"),
     )
 
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(200))
-    role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="user")
+    role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="INVESTIGATOR")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     devices: Mapped[list["Device"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="user")
     fraud_alerts: Mapped[list["FraudAlert"]] = relationship(back_populates="user")
     risk_events: Mapped[list["RiskEvent"]] = relationship(back_populates="user")
+    investigation_cases: Mapped[list["InvestigationCase"]] = relationship(back_populates="assigned_to")
+    case_actions: Mapped[list["CaseAction"]] = relationship(back_populates="actor")
+    investigation_feedback: Mapped[list["InvestigationFeedback"]] = relationship(back_populates="reviewer")
 
 
 class Merchant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -96,6 +99,16 @@ class ModelVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     trained_at: Mapped[datetime | None] = mapped_column()
 
     risk_events: Mapped[list["RiskEvent"]] = relationship(back_populates="model_version")
+
+
+class DetectionPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "detection_policies"
+    __table_args__ = (UniqueConstraint("name", name="uq_detection_policies_name"),)
+
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    updated_by_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
 class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -186,6 +199,62 @@ class FraudAlert(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     transaction: Mapped[Transaction] = relationship(back_populates="fraud_alert")
     user: Mapped[User] = relationship(back_populates="fraud_alerts")
+    investigation_case: Mapped["InvestigationCase | None"] = relationship(back_populates="alert", uselist=False)
+
+
+class InvestigationCase(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "investigation_cases"
+    __table_args__ = (
+        UniqueConstraint("alert_id", name="uq_investigation_cases_alert_id"),
+        Index("ix_investigation_cases_status_created_at", "status", "created_at"),
+    )
+
+    alert_id: Mapped[UUID] = mapped_column(ForeignKey("fraud_alerts.id", ondelete="CASCADE"), nullable=False)
+    assigned_to_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="OPEN")
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    resolution: Mapped[str | None] = mapped_column(String(30))
+
+    alert: Mapped[FraudAlert] = relationship(back_populates="investigation_case")
+    assigned_to: Mapped[User | None] = relationship(back_populates="investigation_cases")
+    actions: Mapped[list["CaseAction"]] = relationship(back_populates="case", cascade="all, delete-orphan")
+
+
+class CaseAction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "case_actions"
+    __table_args__ = (
+        Index("ix_case_actions_case_created_at", "case_id", "created_at"),
+    )
+
+    case_id: Mapped[UUID] = mapped_column(ForeignKey("investigation_cases.id", ondelete="CASCADE"), nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+
+    case: Mapped[InvestigationCase] = relationship(back_populates="actions")
+    actor: Mapped[User] = relationship(back_populates="case_actions")
+
+
+class InvestigationFeedback(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "investigation_feedback"
+    __table_args__ = (
+        Index("ix_investigation_feedback_case_created_at", "case_id", "created_at"),
+        Index("ix_investigation_feedback_label_created_at", "label", "created_at"),
+    )
+
+    case_id: Mapped[UUID] = mapped_column(ForeignKey("investigation_cases.id", ondelete="CASCADE"), nullable=False)
+    transaction_id: Mapped[UUID] = mapped_column(ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
+    reviewer_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    label: Mapped[str] = mapped_column(String(30), nullable=False)
+    fraud_probability: Mapped[float | None] = mapped_column(Numeric(8, 6))
+    risk_score: Mapped[float | None] = mapped_column(Numeric(8, 2))
+    reason_codes: Mapped[list[str] | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    evidence: Mapped[list[str] | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+
+    case: Mapped[InvestigationCase] = relationship()
+    transaction: Mapped[Transaction] = relationship()
+    reviewer: Mapped[User] = relationship(back_populates="investigation_feedback")
 
 
 class RiskEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -214,3 +283,17 @@ class RiskEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     transaction: Mapped[Transaction | None] = relationship(back_populates="risk_events")
     user: Mapped[User | None] = relationship(back_populates="risk_events")
     model_version: Mapped[ModelVersion | None] = relationship(back_populates="risk_events")
+
+
+class AuditLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_event_created_at", "event_type", "created_at"),
+        Index("ix_audit_logs_actor_created_at", "actor_user_id", "created_at"),
+    )
+
+    event_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resource_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(120))
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))

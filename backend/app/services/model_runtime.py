@@ -54,6 +54,7 @@ class ModelRuntime:
         model_dir = root / "ml" / "models"
         classifier_path = model_dir / "fraud_model.joblib"
         anomaly_path = model_dir / "anomaly_detector.joblib"
+        calibrator_path = model_dir / "fraud_calibrator.joblib"
         metadata_path = model_dir / "model_version.json"
         if not classifier_path.exists() or not anomaly_path.exists() or not metadata_path.exists():
             raise FileNotFoundError(
@@ -66,10 +67,12 @@ class ModelRuntime:
         self.decision_threshold = float(self.metadata["decision_threshold"])
         if not 0 < self.decision_threshold < 1:
             raise ValueError("model decision threshold must be between 0 and 1")
+        self.calibrator = joblib.load(calibrator_path) if calibrator_path.exists() else None
         self.risk_engine = RiskEngine(
             self.classifier,
             self.anomaly_detector,
             RuleEngine((_high_amount, _new_device, _unusual_time, _velocity, _impossible_travel, _behavior_deviation)),
+            calibrator=self.calibrator,
         )
 
     def model_features(self, transaction: dict[str, Any]) -> pd.DataFrame:
@@ -92,7 +95,102 @@ class ModelRuntime:
 
     def assess(self, transaction: dict[str, Any]):
         features = self.model_features(transaction)
-        return self.risk_engine.assess(transaction, features)
+        assessment = self.risk_engine.assess(transaction, features)
+        assessment.explanation["model_attributions"] = self.explain_features(features)
+        anomaly_factors = self.anomaly_detector.feature_attributions(features)[0]
+        assessment.explanation["anomaly_attributions"] = anomaly_factors
+        assessment.explanation["top_contributing_factors"] = assessment.explanation["model_attributions"]
+        assessment.explanation["lower_risk_signals"] = [
+            item for item in assessment.explanation["model_attributions"]
+            if item.get("direction") == "decreases_risk"
+        ]
+        return assessment
+
+    def explain_prediction(self, features: dict[str, float]) -> dict[str, Any]:
+        expected = set(self.metadata["feature_names"])
+        missing = sorted(expected.difference(features))
+        if missing:
+            raise ValueError(f"missing required model features: {', '.join(missing)}")
+        frame = pd.DataFrame([{name: features[name] for name in expected}], columns=sorted(expected))
+        anomaly_frame = pd.DataFrame(
+            [{name: features[name] for name in self.anomaly_detector.feature_names_}],
+            columns=self.anomaly_detector.feature_names_,
+        )
+        model_factors = self.explain_features(frame)
+        lower_risk = [item for item in model_factors if item["direction"] == "decreases_risk"]
+        return {
+            "top_contributing_factors": model_factors,
+            "lower_risk_signals": lower_risk,
+            "anomaly_factors": self.anomaly_detector.feature_attributions(anomaly_frame)[0],
+            "basis": "Attributions are calculated from the selected model and anomaly detector inputs.",
+        }
+
+    def explain_features(self, features: pd.DataFrame, top_n: int = 5) -> list[dict[str, Any]]:
+        """Explain actual model inputs with SHAP when available, otherwise ablation."""
+        if top_n <= 0:
+            raise ValueError("top_n must be positive")
+        full_probability = self.risk_engine.calibrate(float(self.classifier.predict_proba(features)[0][1]))
+        attributions: list[dict[str, Any]] = []
+        try:
+            import shap
+
+            preprocessor = self.classifier.named_steps["preprocessor"]
+            classifier = self.classifier.named_steps["classifier"]
+            transformed = preprocessor.transform(features)
+            values = shap.TreeExplainer(classifier).shap_values(transformed)
+            if isinstance(values, list):
+                values = values[1]
+            if getattr(values, "ndim", 0) == 3:
+                values = values[:, :, 1]
+            names = list(preprocessor.get_feature_names_out())
+            row = values[0]
+            for index in sorted(range(len(row)), key=lambda item: abs(row[item]), reverse=True)[:top_n]:
+                contribution = float(row[index])
+                if contribution == 0:
+                    continue
+                attributions.append({
+                    "feature": names[index].split("__", 1)[-1],
+                    "direction": "increases_risk" if contribution > 0 else "decreases_risk",
+                    "contribution": round(contribution, 6),
+                    "relative_contribution": 0.0,
+                    "source": "shap",
+                })
+        except (ImportError, AttributeError, TypeError, ValueError, RuntimeError):
+            baseline = self._baseline_frame(features)
+            for name in features.columns:
+                ablated = features.copy()
+                ablated.loc[:, name] = baseline.loc[:, name]
+                probability = self.risk_engine.calibrate(float(self.classifier.predict_proba(ablated)[0][1]))
+                contribution = full_probability - probability
+                if contribution == 0:
+                    continue
+                attributions.append({
+                    "feature": name,
+                    "direction": "increases_risk" if contribution > 0 else "decreases_risk",
+                    "contribution": round(contribution, 6),
+                    "relative_contribution": 0.0,
+                    "source": "model_ablation",
+                })
+            attributions.sort(key=lambda item: abs(item["contribution"]), reverse=True)
+            attributions = attributions[:top_n]
+        total = sum(abs(float(item["contribution"])) for item in attributions) or 1.0
+        for item in attributions:
+            item["relative_contribution"] = round(abs(float(item["contribution"])) / total, 6)
+        return attributions
+
+    def _baseline_frame(self, features: pd.DataFrame) -> pd.DataFrame:
+        baseline = features.copy()
+        preprocessor = self.classifier.named_steps["preprocessor"]
+        for _, transformer, columns in getattr(preprocessor, "transformers_", []):
+            if transformer == "drop" or transformer == "passthrough":
+                continue
+            statistics = getattr(getattr(transformer, "named_steps", {}).get("imputer"), "statistics_", None)
+            if statistics is None:
+                continue
+            for name, value in zip(columns, statistics):
+                if name in baseline.columns and pd.notna(value):
+                    baseline.loc[:, name] = float(value)
+        return baseline
 
     def predict(self, features: dict[str, float]) -> tuple[float, str, str]:
         """Predict only from caller-provided model features; never synthesize missing inputs."""
@@ -101,7 +199,7 @@ class ModelRuntime:
         if missing:
             raise ValueError(f"missing required model features: {', '.join(missing)}")
         frame = pd.DataFrame([{name: features[name] for name in expected}], columns=sorted(expected))
-        probability = float(self.classifier.predict_proba(frame)[0][1])
+        probability = self.risk_engine.calibrate(float(self.classifier.predict_proba(frame)[0][1]))
         decision = "BLOCK" if probability >= self.decision_threshold else "APPROVE"
         risk_level = "HIGH" if decision == "BLOCK" else "LOW"
         return probability, decision, risk_level

@@ -1,9 +1,11 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8002";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export type TokenResponse = { access_token: string; token_type: string };
+export type FeatureAttribution = { feature: string; direction: "increases_risk" | "decreases_risk" | "above_baseline" | "below_baseline"; contribution: number; relative_contribution: number; source: string };
 export type TransactionAnalysis = {
   fraud_probability: number;
   anomaly_score: number;
+  expected_loss?: number;
   behavior_score?: number;
   network_score?: number;
   rule_score?: number;
@@ -11,6 +13,8 @@ export type TransactionAnalysis = {
   risk_level: "LOW" | "MEDIUM" | "HIGH";
   decision: "APPROVE" | "REVIEW" | "BLOCK" | "CHALLENGE" | "HOLD";
   reasons: string[];
+  evidence?: string[];
+  explanation?: { fraud_probability?: number; expected_loss?: number; economic_probability_threshold?: number; supporting_evidence_severity?: number; basis?: string; evidence?: { code: string; category: string; score: number; severity: string; explanation: string }[]; model_attributions?: FeatureAttribution[]; anomaly_attributions?: FeatureAttribution[]; top_contributing_factors?: FeatureAttribution[]; lower_risk_signals?: FeatureAttribution[] };
   reason_codes?: string[];
   contributions: { name: string; value: number; risk_points: number; explanation: string }[];
   rule_matches: { code: string; message: string; score: number }[];
@@ -44,9 +48,27 @@ export type DashboardStatistics = {
   risk_distribution: Record<string, number>;
   fraud_rate: number;
   model_health: Record<string, string>;
+  active_investigations: number;
+  system_status: string;
+  transactions_per_minute: number;
+  current_fraud_rate: number;
+  financial_exposure: number;
+  critical_alerts: { id: string; transaction_id: string; risk_score: number; reason: string; status: string; created_at: string }[];
+  detection_stream: { time: string; entity: string; transaction_id: string; alert_id?: string | null; risk: number; risk_level: string; decision: string; reason: string }[];
+  top_risky_users: { label: string; transactions: number; fraud_transactions: number; risk_score: number }[];
+  top_risky_devices: { label?: string; fingerprint?: string; transactions: number; fraud_transactions: number; risk_score: number }[];
+  top_risky_merchants: { label?: string; name?: string; transactions?: number; total_transactions?: number; fraud_transactions: number; risk_score: number }[];
+  suspicious_ips: { label: string; transactions: number; fraud_transactions: number; risk_score: number }[];
+  fraud_trend: { date: string; transactions: number; fraud_count: number; volume: number }[];
 };
-export type AttackSimulation = { attack_type: string; transactions_generated: number; detected_transactions: number; detection_rate: number; peak_risk_score: number; detected: boolean; transactions: Transaction[] };
-export type Investigation = { id: string; title: string; severity: string; status: string; assigned_to?: string | null; created_at: string; alert_count?: number; evidence?: string[] };
+export type AttackSimulationEvent = { event_id: string; offset_seconds: number; label: string; event_type: string; transaction_id?: string | null; amount?: number | null; risk_score?: number | null; fraud_probability?: number | null; decision?: string | null; risk_level?: string | null; detected: boolean; signals: string[] };
+export type AttackSimulation = { attack_type: string; transactions_generated: number; fraudulent_transactions: number; detected_transactions: number; missed_transactions: number; blocked_transactions: number; reviewed_transactions: number; detection_rate: number; peak_risk_score: number; detected: boolean; detection_time_seconds?: number | null; average_detection_time_seconds?: number | null; financial_exposure: number; financial_exposure_prevented: number; events: AttackSimulationEvent[]; transactions: Transaction[] };
+export type Investigation = { id: string; alert_id: string; transaction_id: string; title: string; severity: string; status: string; assigned_to?: string | null; action_count: number; created_at: string };
+export type InvestigationAction = { id: string; action_type: string; actor_user_id: string; actor_name: string; note?: string | null; details: Record<string, unknown>; created_at: string };
+export type InvestigationTimelineItem = { timestamp: string; source: "alert" | "risk_event" | "investigator_action"; label: string; detail: string; linked_id?: string | null; risk_score?: number | null };
+export type InvestigationCase = { id: string; alert_id: string; status: string; title: string; assigned_to?: string | null; alert: Record<string, any>; transaction: Transaction; user: Record<string, any>; behavior_profile?: Record<string, any> | null; device?: Record<string, any> | null; ip?: Record<string, any> | null; merchant?: Record<string, any> | null; related_transactions: Transaction[]; network: Record<string, any>; risk_history: Record<string, any>[]; ml_explanation: Record<string, any>; anomaly_evidence: Record<string, any>[]; velocity_evidence: Record<string, any>[]; rule_evidence: Record<string, any>[]; timeline: InvestigationTimelineItem[]; actions: InvestigationAction[] };
+export type SignalFeedbackMetric = { signal: string; false_positive_count: number; reviewed_count: number; false_positive_rate: number };
+export type FeedbackAnalytics = { false_positive_count: number; false_positive_rate: number; fraud_confirmation_count: number; fraud_confirmation_rate: number; uncertain_count: number; reviewed_count: number; review_rate: number; signal_metrics: SignalFeedbackMetric[]; evaluation_records: { case_id: string; transaction_id: string; label: string; fraud_probability?: number | null; risk_score?: number | null; reason_codes: string[]; created_at: string }[]; retraining_triggered: boolean; evaluation_note: string };
 export type NetworkNode = { id: string; type: "user" | "device" | "merchant" | "ip" | "transaction"; label: string; risk_score?: number; risk_level?: string; features?: Record<string, number> };
 export type NetworkEdge = { source: string; target: string; relationship: string; weight?: number };
 export type NetworkGraph = { nodes: NetworkNode[]; edges: NetworkEdge[] };
@@ -259,10 +281,17 @@ export type TransactionTemporalContextResponse = {
   time_since_previous_seconds?: number | null;
   time_since_previous_formatted: string;
 };
-export type ModelMetrics = { model_version: string; precision?: number; recall?: number; f1?: number; roc_auc?: number; pr_auc?: number; confusion_matrix?: number[][]; feature_importance?: { name: string; value: number }[]; drift?: Record<string, string> };
-export type AnalyticsOverview = { series: { timestamp: string; transactions: number; fraud_probability?: number; alerts?: number }[]; segments?: Record<string, number> };
+export type ModelCurvePoint = { x: number; y: number };
+export type ModelComparison = { name: string; model_version?: string | null; precision?: number | null; recall?: number | null; f1?: number | null; roc_auc?: number | null; pr_auc?: number | null; threshold?: number | null };
+export type ModelMetrics = { available: boolean; current_model?: string | null; model_version?: string | null; training_dataset: Record<string, any>; training_timestamp?: string | null; metrics: Record<string, number | null>; confusion_matrix?: number[][] | null; roc_curve: ModelCurvePoint[]; precision_recall_curve: ModelCurvePoint[]; feature_importance: { name: string; value: number }[]; prediction_distribution: { key: string; count: number }[]; risk_distribution: { key: string; count: number }[]; model_comparison: ModelComparison[]; historical_versions: Record<string, any>[]; health: Record<string, string | null> };
+export type AnalyticsOverview = { fraud_trend: { label: string; transactions: number; fraud_transactions: number; fraud_amount: number }[]; risk_distribution: { label: string; count: number }[]; fraud_by_hour: { label: string; hour: number; count: number }[]; fraud_by_merchant_category: AnalyticsGroup[]; fraud_by_device: AnalyticsGroup[]; fraud_by_location: AnalyticsGroup[]; amount_distribution: { label: string; count: number; fraud_transactions: number }[]; detection_performance: Record<string, number | null>; false_positive_trend: { label: string; false_positives: number; reviewed: number }[]; financial_exposure: Record<string, number>; attack_simulation_performance: AnalyticsGroup[]; network_risk_clusters: Record<string, any>[] };
+export type AnalyticsGroup = { label: string; transactions: number; fraud_transactions: number; fraud_rate: number; detected_transactions?: number; detection_rate?: number };
 export type AdminUser = { id: string; email: string; display_name?: string | null; role: string; is_active: boolean };
-export type AuditLog = { id: string; actor_user_id?: string; action: string; resource_type: string; resource_id?: string; created_at: string };
+export type AuditLog = { id: string; actor_user_id?: string | null; event_type: string; resource_type: string; resource_id?: string | null; details: Record<string, unknown>; created_at: string };
+export type EventUpdate = { event_id: string; event_type: string; created_at: string; transaction_id?: string | null; alert_id?: string | null; risk_score?: number | null; risk_level?: string | null; decision?: string | null; reason?: string | null };
+export type EventPollResponse = { events: EventUpdate[]; server_time: string; next_since: string };
+export type ManagedModel = { id: string; model_name: string; version: number; is_active: boolean; trained_at?: string | null };
+export type DetectionPolicy = { id: string; name: string; configuration: Record<string, unknown>; is_active: boolean; updated_by_id?: string | null };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("fraudguard_token") : null;
@@ -301,8 +330,12 @@ export const api = {
   alerts: (limit = 50) => request<{ items: Alert[]; total: number }>(`/fraud-alerts?limit=${limit}`),
   alert: (id: string) => request<Alert>(`/fraud-alerts/${id}`),
   statistics: () => request<DashboardStatistics>("/dashboard/statistics"),
+  pollEvents: (since?: string) => request<EventPollResponse>(`/events/poll${since ? `?since=${encodeURIComponent(since)}` : ""}`),
   adminProfile: () => request<{ id: string; email: string; display_name: string | null; role: string }>("/admin/me"),
   investigations: (limit = 50) => request<{ items: Investigation[]; total: number }>(`/cases?limit=${limit}`),
+  investigation: (id: string) => request<InvestigationCase>(`/cases/${id}`),
+  investigationAction: (id: string, body: { action_type: string; note?: string; assigned_to_id?: string }) => request<InvestigationAction>(`/cases/${id}/actions`, { method: "POST", body: JSON.stringify(body) }),
+  feedbackAnalytics: () => request<FeedbackAnalytics>("/feedback/analytics"),
   network: () => request<NetworkGraph>("/network/graph"),
   networkProfile: (type: NetworkNode["type"], id: string) => request<NetworkEntityProfile>(`/network/entities/${type}/${encodeURIComponent(id)}/profile`),
   networkNeighborhood: (type: NetworkNode["type"], id: string, depth = 1) => request<NetworkNeighborhood>(`/network/entities/${type}/${encodeURIComponent(id)}/neighborhood?depth=${depth}`),
@@ -331,4 +364,9 @@ export const api = {
   analyticsOverview: (query = "") => request<AnalyticsOverview>(`/analytics/overview${query ? `?${query}` : ""}`),
   adminUsers: () => request<{ items: AdminUser[]; total: number }>("/admin/users"),
   auditLogs: (limit = 50) => request<{ items: AuditLog[]; total: number }>(`/admin/audit-logs?limit=${limit}`),
+  updateUserRole: (id: string, role: "ADMIN" | "INVESTIGATOR" | "ANALYST") => request<AdminUser>(`/admin/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  adminModels: () => request<ManagedModel[]>("/admin/models"),
+  deployModel: (id: string) => request<ManagedModel>(`/admin/models/${id}/deploy`, { method: "POST" }),
+  detectionPolicy: (name: string) => request<DetectionPolicy>(`/admin/policies/${name}`),
+  updateDetectionPolicy: (name: string, configuration: Record<string, unknown>) => request<DetectionPolicy>(`/admin/policies/${name}`, { method: "PUT", body: JSON.stringify({ configuration }) }),
 };

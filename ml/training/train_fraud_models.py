@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from sklearn.metrics import (
     confusion_matrix,
     f1_score,
     precision_recall_curve,
+    roc_curve as sklearn_roc_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -137,6 +139,10 @@ def evaluate_model(
     probabilities = model.predict_proba(x_test)[:, 1]
     predictions = (probabilities >= threshold).astype(int)
     matrix = confusion_matrix(y_test, predictions, labels=[0, 1])
+    false_positive_rate, true_positive_rate, _ = sklearn_roc_curve(y_test, probabilities)
+    curve_precision, curve_recall, _ = precision_recall_curve(y_test, probabilities)
+    prediction_bins = [{"key": f"{start:.1f}-{start + 0.1:.1f}", "count": int(((probabilities >= start) & (probabilities < start + 0.1)).sum())} for start in [index / 10 for index in range(10)]]
+    prediction_bins[-1]["count"] += int((probabilities >= 1.0).sum())
     return {
         "precision": float(precision_score(y_test, predictions, zero_division=0)),
         "recall": float(recall_score(y_test, predictions, zero_division=0)),
@@ -145,6 +151,13 @@ def evaluate_model(
         "pr_auc": float(average_precision_score(y_test, probabilities)),
         "threshold": threshold,
         "confusion_matrix": matrix.tolist(),
+        "roc_curve": [{"fpr": float(x), "tpr": float(y)} for x, y in zip(false_positive_rate, true_positive_rate)],
+        "precision_recall_curve": [{"precision": float(x), "recall": float(y)} for x, y in zip(curve_precision, curve_recall)],
+        "prediction_distribution": prediction_bins,
+        "risk_distribution": [
+            {"key": "LOW", "count": int((predictions == 0).sum())},
+            {"key": "HIGH", "count": int((predictions == 1).sum())},
+        ],
     }
 
 
@@ -235,6 +248,7 @@ def write_artifacts(
                 "selected_model": selected_name,
                 "decision_threshold": results[selected_name]["threshold"],
                 "feature_names": list(selected_pipeline.named_steps["preprocessor"].feature_names_in_),
+                "training_timestamp": datetime.now(timezone.utc).isoformat(),
             },
             indent=2,
         )

@@ -12,6 +12,10 @@ from app.schemas.transactions import TransactionCreate
 from app.services.risk_engine import RiskAssessment, RiskEngine, RiskSignals, RuleEngine, RuleMatch
 
 
+def _ensure_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
 class TransactionProcessor:
     def __init__(self, risk_engine: RiskEngine) -> None:
         self.risk_engine = risk_engine
@@ -27,9 +31,15 @@ class TransactionProcessor:
             and payload.location
             and prior_location != payload.location
             and prior
-            and payload.occurred_at - prior.occurred_at <= timedelta(minutes=15)
+            and _ensure_utc(payload.occurred_at) - _ensure_utc(prior.occurred_at) <= timedelta(minutes=15)
         )
         behavior_deviation = self._behavior_deviation(db, user.id, float(payload.amount), payload.location)
+        network_evidence = self._network_evidence(db, payload.device_id, payload.device_fingerprint, payload.ip_address)
+        device_intelligence = max(
+            1.0 if payload.device_status == "new" else device_novelty,
+            self._device_intelligence(db, payload.device_id),
+        )
+        merchant_intelligence = self._merchant_intelligence(db, payload.merchant_id, payload.merchant_category)
         occurred_time = payload.timestamp or payload.occurred_at
         prev_tx_id = payload.previous_transaction_id or (prior.id if prior else None)
         calculated_account_age = payload.account_age
@@ -79,6 +89,11 @@ class TransactionProcessor:
                 "transaction_time_anomaly",
                 1.0 if payload.occurred_at.hour < 6 else 0.0,
             )),
+            behavior_deviation=behavior_deviation,
+            temporal_evidence=min(transaction_frequency / 5.0, 1.0),
+            network_evidence=network_evidence,
+            merchant_intelligence=merchant_intelligence,
+            device_intelligence=device_intelligence,
         )
         assessment = self.risk_engine.assess_with_features(
             transaction={
@@ -95,7 +110,7 @@ class TransactionProcessor:
             model_features=model_features,
             auxiliary_signals=signals,
         )
-        transaction.fraud_probability = assessment.signals.ml_fraud_probability
+        transaction.fraud_probability = assessment.fraud_probability
         transaction.anomaly_score = assessment.signals.anomaly_score
         transaction.risk_score = assessment.risk_score
         transaction.risk_level = assessment.risk_level
@@ -105,6 +120,9 @@ class TransactionProcessor:
             **(transaction.metadata_json or {}),
             "contributions": [vars(item) for item in assessment.contributions],
             "rule_matches": [vars(item) for item in assessment.rule_matches],
+            "evidence": [item.explanation for item in assessment.evidence],
+            "reason_codes": list(assessment.reason_codes),
+            "explanation": assessment.explanation,
         }
         self._record_device(db, user.id, payload)
         if assessment.risk_level in {"MEDIUM", "HIGH"}:
@@ -167,6 +185,40 @@ class TransactionProcessor:
         ).get("location") for item in recent}
         location_deviation = 1.0 if location and known_locations and location not in known_locations else 0.0
         return max(amount_deviation, location_deviation)
+
+    @staticmethod
+    def _network_evidence(db: Session, device_id: UUID | None, device_fingerprint: str | None, ip_address: str | None) -> float:
+        shared_device_users = {
+            item for item in db.scalars(select(Transaction.user_id).where(Transaction.device_id == device_id)).all()
+        } if device_id else set()
+        shared_ip_users = {
+            item for item in db.scalars(select(Transaction.user_id).where(Transaction.ip_address == ip_address)).all()
+        } if ip_address else set()
+        repeated_fingerprint = db.scalar(select(func.count(Device.id)).where(Device.fingerprint == device_fingerprint)) if device_fingerprint else 0
+        return min(1.0, max((len(shared_device_users) - 1) / 3.0, (len(shared_ip_users) - 1) / 3.0, float(repeated_fingerprint or 0) / 3.0, 0.0))
+
+    @staticmethod
+    def _device_intelligence(db: Session, device_id: UUID | None) -> float:
+        if not device_id:
+            return 0.0
+        users = set(db.scalars(select(Transaction.user_id).where(Transaction.device_id == device_id)).all())
+        return min(1.0, max(0, len(users) - 1) / 3.0)
+
+    @staticmethod
+    def _merchant_intelligence(db: Session, merchant_id: UUID | None, merchant_category: str | None) -> float:
+        if merchant_id:
+            history = list(db.scalars(select(Transaction).where(Transaction.merchant_id == merchant_id)).all())
+        elif merchant_category:
+            history = list(db.scalars(select(Transaction).where(Transaction.merchant_category == merchant_category)).all())
+        else:
+            return 0.0
+        if not history:
+            return 0.0
+        suspicious = sum(
+            item.is_fraud or item.decision in {"REVIEW", "BLOCK"} or item.risk_level in {"MEDIUM", "HIGH"}
+            for item in history
+        )
+        return min(1.0, suspicious / len(history))
 
     @staticmethod
     def _record_device(db: Session, user_id: UUID, payload: TransactionCreate) -> None:

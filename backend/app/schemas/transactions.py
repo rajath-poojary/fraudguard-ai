@@ -49,10 +49,14 @@ class TransactionCreate(BaseModel):
 class TransactionAnalysis(BaseModel):
     fraud_probability: float
     anomaly_score: float
+    expected_loss: float = 0.0
     risk_score: float
     risk_level: str
     decision: str
     reasons: list[str]
+    evidence: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    explanation: dict[str, Any] = Field(default_factory=dict)
     contributions: list[dict[str, Any]] = Field(default_factory=list)
     rule_matches: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -121,6 +125,14 @@ class DashboardStatistics(BaseModel):
     top_risky_merchants: list[dict[str, Any]] = Field(default_factory=list)
     top_risky_devices: list[dict[str, Any]] = Field(default_factory=list)
     fraud_trend: list[dict[str, Any]] = Field(default_factory=list)
+    system_status: str = "OPERATIONAL"
+    transactions_per_minute: float = 0.0
+    current_fraud_rate: float = 0.0
+    financial_exposure: float = 0.0
+    critical_alerts: list[dict[str, Any]] = Field(default_factory=list)
+    top_risky_users: list[dict[str, Any]] = Field(default_factory=list)
+    suspicious_ips: list[dict[str, Any]] = Field(default_factory=list)
+    detection_stream: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SimulationResponse(BaseModel):
@@ -128,7 +140,7 @@ class SimulationResponse(BaseModel):
 
 
 class AttackSimulationRequest(BaseModel):
-    attack_type: str = Field(pattern="^(normal|account_takeover|card_testing|velocity|impossible_travel|device_takeover|fraud_ring)$")
+    attack_type: str = Field(pattern="^(normal|account_takeover|card_testing|velocity|device_takeover|impossible_travel|coordinated_fraud|merchant_abuse|fraud_ring)$")
     currency: str = Field(default="INR", min_length=3, max_length=3)
     base_location: str = Field(default="Bengaluru", min_length=2, max_length=100)
     base_amount: Decimal = Field(default=Decimal("1200"), gt=0, max_digits=18, decimal_places=2)
@@ -139,11 +151,35 @@ class AttackSimulationRequest(BaseModel):
         return value.upper()
 
 
+class AttackSimulationEvent(BaseModel):
+    event_id: str
+    offset_seconds: int
+    label: str
+    event_type: str
+    transaction_id: UUID | None = None
+    amount: float | None = None
+    risk_score: float | None = None
+    fraud_probability: float | None = None
+    decision: str | None = None
+    risk_level: str | None = None
+    detected: bool = False
+    signals: list[str] = Field(default_factory=list)
+
+
 class AttackSimulationResponse(BaseModel):
     attack_type: str
     transactions_generated: int
+    fraudulent_transactions: int
     detected_transactions: int
+    missed_transactions: int
+    blocked_transactions: int
+    reviewed_transactions: int
     detection_rate: float
     peak_risk_score: float
     detected: bool
+    detection_time_seconds: int | None = None
+    average_detection_time_seconds: float | None = None
+    financial_exposure: float
+    financial_exposure_prevented: float
+    events: list[AttackSimulationEvent]
     transactions: list[TransactionResponse]

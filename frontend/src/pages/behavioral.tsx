@@ -23,6 +23,7 @@ export default function Behavioral() {
   const [profiles, setProfiles] = useState<UserProfileSummary[] | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedTxId, setSelectedTxId] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [activeProfile, setActiveProfile] = useState<UserBehaviorProfileResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -59,6 +60,7 @@ export default function Behavioral() {
   const deviation = activeProfile?.current_deviation;
   const risks = activeProfile?.risk_indicators || [];
   const timeline = activeProfile?.behavior_timeline || [];
+  const visibleProfiles = profiles?.filter((profile) => `${profile.email} ${profile.display_name || ""}`.toLowerCase().includes(searchQuery.toLowerCase())) || [];
 
   // Helper for deviation level color
   const getLevelColor = (level?: string) => {
@@ -86,9 +88,7 @@ export default function Behavioral() {
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
               {profiles && profiles.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontSize: "10px", color: "var(--faint)", textTransform: "uppercase" }}>
-                    Select User:
-                  </span>
+                  <input aria-label="Search users" placeholder="Search user" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} style={{ width: "170px", padding: "6px 10px" }} />
                   <select
                     style={{ padding: "6px 10px", width: "auto" }}
                     value={selectedUserId}
@@ -97,7 +97,7 @@ export default function Behavioral() {
                       setSelectedTxId(""); // Reset transaction to latest
                     }}
                   >
-                    {profiles.map((p) => (
+                    {visibleProfiles.map((p) => (
                       <option key={p.user_id} value={p.user_id}>
                         {p.email} ({p.overall_risk_level} — {p.transaction_count} txs)
                       </option>
@@ -167,6 +167,8 @@ export default function Behavioral() {
               <EmptyState title="No Profile Loaded" detail="Select a user account to view behavioral intelligence." />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "14px" }}>
+
+                <ChangeProgression level={deviation?.overall_risk_level} />
 
                 {/* ========================================================================= */}
                 {/* TIER 1: NORMAL BEHAVIOR                                                   */}
@@ -683,4 +685,10 @@ export default function Behavioral() {
       </section>
     </AppShell>
   );
+}
+
+function ChangeProgression({ level }: { level?: string }) {
+  const stages = ["NORMAL", "UNUSUAL", "SUSPICIOUS", "HIGH RISK"];
+  const activeIndex = level === "HIGH" ? 3 : level === "MEDIUM" ? 2 : level === "LOW" ? 0 : -1;
+  return <div className="tier-indicator" aria-label="Behavior change progression"><span>Behavior change</span>{stages.map((stage, index) => <span key={stage} style={{ color: index <= activeIndex ? (index === 3 ? "var(--red)" : index === 2 ? "var(--amber)" : "var(--cyan)") : "var(--faint)", fontWeight: index === activeIndex ? 800 : 400 }}>{index > 0 && <span className="arrow">↓</span>} {stage}</span>)}</div>;
 }

@@ -141,6 +141,40 @@ class IsolationForestAnomalyDetector:
             )
         return results
 
+    def feature_attributions(
+        self, transactions: pd.DataFrame, top_n: int = 5
+    ) -> list[list[dict[str, float | str]]]:
+        """Return signed standardized deviations used by the anomaly detector.
+
+        Isolation Forest has no per-feature probability decomposition. These are
+        observable detector inputs: larger absolute standardized deviations are
+        the anomaly evidence, while the sign describes the direction of the
+        underlying feature deviation.
+        """
+        if top_n <= 0:
+            raise ValueError("top_n must be positive")
+        pipeline = self._require_fitted()
+        features = prepare_transaction_features(transactions).reindex(columns=self.feature_names_)
+        imputed = pipeline.named_steps["imputer"].transform(features)
+        scaled = pipeline.named_steps["scaler"].transform(imputed)
+        results: list[list[dict[str, float | str]]] = []
+        for row in scaled:
+            indices = sorted(range(len(row)), key=lambda index: abs(row[index]), reverse=True)[:top_n]
+            selected = [float(row[index]) for index in indices if abs(row[index]) > 0]
+            total = sum(abs(value) for value in selected) or 1.0
+            results.append([
+                {
+                    "feature": self.feature_names_[index],
+                    "contribution": round(abs(float(row[index])), 6),
+                    "direction": "above_baseline" if row[index] > 0 else "below_baseline",
+                    "relative_contribution": round(abs(float(row[index])) / total, 6),
+                    "source": "anomaly_detector",
+                }
+                for index in indices
+                if abs(row[index]) > 0
+            ])
+        return results
+
     def predict_anomalies(self, transactions: pd.DataFrame) -> pd.DataFrame:
         """Return input rows with an anomaly score and threshold decision."""
         scores = self.anomaly_score(transactions)

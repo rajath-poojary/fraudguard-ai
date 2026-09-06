@@ -234,11 +234,11 @@ class NetworkIntelligence:
         return [
             RelatedEntity(
                 entity=self._node(neighbor),
-                relationship=next(
+                relationship=", ".join(sorted({
                     edge.relationship
                     for edge in self.graph.edges
                     if {edge.source, edge.target} == {entity_id, neighbor}
-                ),
+                })),
                 transaction_count=len(self._transactions_for(neighbor)),
             )
             for neighbor in sorted(self._adjacency[entity_id])

@@ -46,7 +46,10 @@ def seed_database(
         seed=seed,
         duration_days=duration_days,
     )
-    generator.initialize_world(num_users=num_users, num_merchants=num_merchants)
+    raw_txs = generator.generate_complete_dataset(
+        num_users=num_users,
+        num_merchants=num_merchants,
+    )
 
     # Ensure admin user exists
     admin_user = db.scalar(select(User).where(User.email == admin_email))
@@ -55,7 +58,7 @@ def seed_database(
             email=admin_email,
             password_hash=hash_password(default_password),
             display_name="Security Admin",
-            role="admin",
+            role="ADMIN",
             is_active=True,
         )
         db.add(admin_user)
@@ -68,7 +71,7 @@ def seed_database(
             email=demo_email,
             password_hash=hash_password(default_password),
             display_name="Demo Analyst",
-            role="user",
+            role="ANALYST",
             is_active=True,
         )
         db.add(demo_user)
@@ -102,7 +105,7 @@ def seed_database(
                 email=u_prof.email,
                 password_hash=hash_password(default_password),
                 display_name=u_prof.display_name,
-                role="user",
+                role="ANALYST",
                 is_active=True,
             )
             db.add(db_user)
@@ -121,12 +124,6 @@ def seed_database(
             user_map[u_prof.user_id] = existing_u
     db.flush()
 
-    # Generate complete transaction stream with all 8 fraud scenarios
-    raw_txs = generator.generate_complete_dataset(
-        num_users=len(generator.users),
-        num_merchants=len(generator.merchants),
-    )
-
     # Insert transactions, preserving previous_transaction_id foreign keys in topological/chronological order
     tx_inserted = 0
     alerts_inserted = 0
@@ -137,6 +134,10 @@ def seed_database(
         existing_tx = db.get(Transaction, tx.transaction_id)
         if existing_tx:
             continue
+
+        db_user = user_map[tx.user_id]
+        db_merchant = merchant_map[tx.merchant_id]
+        db_device_id = tx.device_id if db.get(Device, tx.device_id) else None
 
         # Score calculations for the historical record
         if tx.is_fraud:
@@ -161,9 +162,9 @@ def seed_database(
 
         db_tx = Transaction(
             id=tx.transaction_id,
-            user_id=tx.user_id,
-            merchant_id=tx.merchant_id,
-            device_id=tx.device_id,
+            user_id=db_user.id,
+            merchant_id=db_merchant.id,
+            device_id=db_device_id,
             amount=tx.amount,
             currency=tx.currency,
             status="blocked" if tx.is_fraud else tx.transaction_status,
@@ -200,7 +201,7 @@ def seed_database(
             db_alert = FraudAlert(
                 id=uuid4(),
                 transaction_id=db_tx.id,
-                user_id=tx.user_id,
+                user_id=db_user.id,
                 risk_score=risk_score,
                 status="open",
                 reason_code=reason_code,
@@ -211,7 +212,7 @@ def seed_database(
             db_event = RiskEvent(
                 id=uuid4(),
                 transaction_id=db_tx.id,
-                user_id=tx.user_id,
+                user_id=db_user.id,
                 event_type="fraud_detection",
                 reason_code=reason_code,
                 risk_score=risk_score,

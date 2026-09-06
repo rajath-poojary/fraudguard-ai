@@ -1,8 +1,8 @@
 {
   "model_name": "fraud-classifier",
   "model_version": "fraud-classifier-v1.0.0",
-  "selected_model": "random_forest",
-  "decision_threshold": 0.2633333333333333,
+  "selected_model": "lightgbm",
+  "decision_threshold": 0.9919536621426395,
   "feature_names": [
     "V1",
     "V2",
@@ -37,5 +37,6 @@
     "day",
     "amount_log1p",
     "amount_missing"
-  ]
+  ],
+  "training_timestamp": "2026-09-06T14:51:27.998925+00:00"
 }

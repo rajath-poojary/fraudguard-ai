@@ -22,3 +22,6 @@ class PredictionResponse(BaseModel):
     anomaly_score: float = Field(ge=0, le=1)
     anomaly_level: str
     top_anomaly_features: list[dict[str, float | str]]
+    top_contributing_factors: list[dict[str, float | str]] | None = None
+    lower_risk_signals: list[dict[str, float | str]] | None = None
+    explanation: dict[str, object] | None = None

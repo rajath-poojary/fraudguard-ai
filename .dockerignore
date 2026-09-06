@@ -1,0 +1,10 @@
+**/__pycache__
+**/.pytest_cache
+.git
+frontend
+backend/tests
+tests
+ml/data/raw
+ml/evaluation
+ml/training
+ml/README.md
